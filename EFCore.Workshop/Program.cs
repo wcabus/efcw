@@ -1,65 +1,75 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.Extensions.Options;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Linq.Expressions;
+using System.Net;
+using System.Net.Sockets;
 
-namespace EFCore.Workshop;
+namespace Test;
 
-public class Program
+// https://github.com/FransBouma/RawDataAccessBencher
+
+class Program
 {
-    static async Task Main()
+    static void Main()
     {
-        await using var db = new MyContext();
-        await db.Database.EnsureDeletedAsync();
-        await db.Database.EnsureCreatedAsync();
-
-        //await QueryOnShadowProperties(db);
-        //await QueryOnSharedType(db);
-        //await DefaultQueryFilters(db);
-        //await db.Set<Bar>().FromSqlRaw("SELECT '1' AS Foo").LoadAsync();
-
-        var order = await db.Set<Order>()
-            .TagWithCallSite()
-            .Where(x => x.Id == 10)
-            .FirstOrDefaultAsync();
-        if (order is not null)
-        {
-            await db.Entry(order).Reference(x => x.DetailedOrder).LoadAsync();
-        }
-    }
-
-    private static async Task<List<Dog>> QueryOnShadowProperties(MyContext db)
-    {
-        return await db.Dogs
-            .Where(x => EF.Property<DateTimeOffset>(x, "LastUpdated") <= DateTimeOffset.Now)
-            .ToListAsync();
-    }
-
-    private static async Task<List<Dictionary<string, object?>>> QueryOnSharedType(MyContext db)
-    {
-        return await db.Set<Dictionary<string, object?>>("Foo")
-            .Where(x => EF.Property<string>(x, "Name").StartsWith("Sar"))
-            .ToListAsync();
-    }
-
-    private static async Task DefaultQueryFilters(MyContext db)
-    {
-        await db.Dogs
-            //.IgnoreQueryFilters()
-            .Where(x => x.DateOfBirth.Year == 2000)
-            .ToListAsync();
+        using var db = new MyContext();
+        db.Database.EnsureDeleted();
+        db.Database.EnsureCreated();
+        //db.Owners.Add(new Owner() { LastName = "Test" });
+        //db.SaveChanges();
+        //db.Dogs.Where(x => EF.Property<DateTimeOffset>(x, "LastUpdated") == DateTimeOffset.Now).Load();
+        //db.Set<Dictionary<string, object>>("Foo").Add(new Dictionary<string, object>());
+        //db.SaveChanges();
+        //db.Dogs
+        //    //.IgnoreQueryFilters()
+        //    .Where(x => x.DateOfBirth.Year == 2000)
+        //    .ToList();
+        //db.Owners.Where(x => x.Dogs.Any(y => y.DateOfBirth.Year == 2000)).Load();
+        //var owner = new Owner() { LastName = "Test" };
+        //db.Add(owner);
+        //var dog = new Dog()
+        //{
+        //    DateOfBirth = DateTimeOffset.Now,
+        //    Name = "Test",
+        //    Owner = owner,
+        //    Duration = new Duration(10),
+        //};
+        //db.Dogs.Add(dog);
+        //db.SaveChanges();
+        //dog.Duration = new Duration(10);
+        //db.SaveChanges();
+        //db.Set<Foo>().Load();
+        //db.Database.ExecuteSqlRaw("create function ...");
+        //db.Set<Foo>()
+        //    .FromSqlRaw("select 1 as Bar, '2' as Baz")
+        //    .OrderBy(x => MyContext.Foo(x.Bar))
+        //    .Load();
+        //var foo = db.Set<Order>()
+        //    .TagWithCallSite()
+        //    .Where(x => x.Id == 10)
+        //    .First();
+        //db.Entry(foo).Reference(x => x.DetailedOrder).Load();
     }
 }
 
-public class MyContext : DbContext
+class MyContext : DbContext
 {
+    [DbFunction()]
+    public static int Foo(int i)
+    {
+        throw new InvalidOperationException();
+    }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);
 
         if (!optionsBuilder.IsConfigured)
         {
-            optionsBuilder.UseSqlServer(
-                "Server=.;Database=EFCore.Workshop;Trusted_Connection=True;TrustServerCertificate=true");
+            optionsBuilder.UseSqlServer(@"Server=.;Database=workshop;User Id=sa;Password=test;ConnectRetryCount=0;TrustServerCertificate=true");
             optionsBuilder.LogTo(Console.WriteLine);
             optionsBuilder.EnableSensitiveDataLogging();
         }
@@ -71,44 +81,47 @@ public class MyContext : DbContext
 
         modelBuilder.ApplyConfiguration(new OwnerConfiguration());
         modelBuilder.ApplyConfiguration(new DogConfiguration());
-        modelBuilder.HasSequence("mysequence").IsCyclic().IncrementsBy(42);
+        modelBuilder.HasSequence("cdssdcds").IsCyclic()
+            .IncrementsBy(7839);
 
-        modelBuilder.SharedTypeEntity<Dictionary<string, object?>>("Foo", b =>
+        //modelBuilder.SharedTypeEntity<Dictionary<string, object>>("Foo", b =>
+        //{
+        //    b.Property<int>("Id");
+        //    b.Property<string>("Name");
+        //    b.Property<int>("Age");
+        //    b.Property<double>("Car");
+        //});
+        //modelBuilder.SharedTypeEntity<Dictionary<string, object>>("Bar", b =>
+        //{
+        //    b.Property<int>("Id");
+        //    b.Property<string>("Foo");
+        //});
+
+        modelBuilder.Entity<DetailedOrder>(dob =>
         {
-            b.Property<int>("Id");
-            b.Property<string>("Name");
-            b.Property<int>("Age");
-            b.Property<double>("Score");
+            dob.ToTable("Orders");
+            dob.Property(o => o.Status).HasColumnName("Status");
         });
 
-        modelBuilder.Entity<Bar>()
-            .HasNoKey()
-            ;//.ToView("MyView");
-
-        modelBuilder.Entity<DetailedOrder>(b =>
+        modelBuilder.Entity<Order>(ob =>
         {
-            b.ToTable("Orders");
-            b.Property(x => x.Status).HasColumnName("Status");
-        });
-
-        modelBuilder.Entity<Order>(b =>
-        {
-            b.ToTable("Orders");
-            b.Property(x => x.Status).HasColumnName("Status");
-            
-            // splitting into base and more detailed entities on the same table
-            b.HasOne(x => x.DetailedOrder).WithOne()
+            ob.ToTable("Orders");
+            ob.Property(o => o.Status).HasColumnName("Status");
+            ob.HasOne(o => o.DetailedOrder).WithOne()
                 .HasForeignKey<DetailedOrder>(o => o.Id);
-            b.Navigation(x => x.DetailedOrder).IsRequired();
+            ob.Navigation(o => o.DetailedOrder).IsRequired();
         });
+
+        modelBuilder.Entity<Foo>()
+            .HasNoKey()
+            /*.ToView("MyView")*/;
     }
 
     public DbSet<Owner> Owners => Set<Owner>();
     public DbSet<Dog> Dogs => Set<Dog>();
-    public DbSet<Cat> Cats => Set<Cat>();
 }
 
-public class OwnerConfiguration : IEntityTypeConfiguration<Owner>
+class OwnerConfiguration : IEntityTypeConfiguration<Owner>
 {
     public void Configure(EntityTypeBuilder<Owner> builder)
     {
@@ -117,127 +130,90 @@ public class OwnerConfiguration : IEntityTypeConfiguration<Owner>
             .IsRequired()
             .IsFixedLength(false)
             .IsUnicode()
-            .HasMaxLength(100)
-            .HasColumnName("Surname");
-
+            .HasMaxLength(50)
+            .HasColumnName("Surname")
+            /*.HasDefaultValueSql()*/;
         builder.HasMany(x => x.Dogs)
             .WithOne(x => x.Owner)
             .HasForeignKey(x => x.OwnerId)
             .OnDelete(DeleteBehavior.Cascade);
-
-        // builder.Property(x => x.Id).UseIdentityColumn(); // autogenerated, can't insert custom ID value except when toggling identity inserts
-        // builder.Property(x => x.Id).UseSequence(); // use separate sequence for ID generation, but allows inserting custom ID values (sequence might throw an error then however)
-        builder.Property(x => x.Id).UseHiLo(); // use cache of IDs to allow local ID generation.
-
+        builder.Property(x => x.Id)/*.UseHiLo()*/;
         builder.OwnsOne(x => x.ShippingAddress);
         builder.OwnsOne(x => x.InvoicingAddress);
     }
 }
-
-public class Owner
+class Owner
 {
     public int Id { get; set; }
-    public string? FirstName { get; set; }
-    public string? LastName { get; set; }
-
-    public ICollection<Dog>? Dogs { get; set; }
-    public ICollection<Cat>? Cats { get; set; }
-
-    public Address? ShippingAddress { get; set; }
-    public Address? InvoicingAddress { get; set; }
+    public string FirstName { get; set; }
+    public string LastName { get; set; }
+    public ICollection<Dog> Dogs { get; set; }
+    public Address ShippingAddress { get; set; }
+    public Address InvoicingAddress { get; set; }
 }
-
-public class Address
+//class Name
+//{
+//    public string FirstName { get; set; }
+//    public string LastName { get; set; }
+//}
+class Address
 {
-    public string? Street { get; set; }
-    public string? City { get; set; }
+    public string Street { get; set; }
+    public string City { get; set; }
 }
 
-public class DogConfiguration : IEntityTypeConfiguration<Dog>
+class DogConfiguration : IEntityTypeConfiguration<Dog>
 {
     public void Configure(EntityTypeBuilder<Dog> builder)
     {
         builder.Property(x => x.DateOfBirth)
             .UsePropertyAccessMode(PropertyAccessMode.FieldDuringConstruction)
-            .HasField("_dateOfBirth");
-
-        // Shadow properties
-        // You can also add database-side properties that are not mapped to a property on the entity.
+            .HasField("dob");
         builder.Property<DateTimeOffset>("LastUpdated");
-
         builder.HasQueryFilter(x => x.Active);
-
         builder.Property(x => x.Duration)
-            .HasConversion(new DurationConverter());
+            .HasConversion(new DurationConverter()/*, comparer*/);
     }
 }
-
-public class Dog
+class Dog
 {
-    private DateTimeOffset _dateOfBirth;
+    private DateTimeOffset dob;
 
     public int Id { get; set; }
-    public string? Name { get; set; }
-
+    public string Name { get; set; }
     public DateTimeOffset DateOfBirth
     {
-        get => _dateOfBirth;
+        get => dob;
         set
         {
             Validate(value);
-            _dateOfBirth = value;
+            dob = value;
 
-            static void Validate(DateTimeOffset value)
-            {
-                if (value > DateTimeOffset.Now)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value));
-                }
-            }
+            static void Validate(DateTimeOffset dto) { }
         }
     }
-
-    public int? OwnerId { get; set; }
-    public Owner? Owner { get; set; }
+    public Owner Owner { get; set; }
+    public int OwnerId { get; set; }
     public bool Active { get; set; }
     public Duration Duration { get; set; }
 }
 
-public class Duration
+class Duration
 {
+    private int _value;
+
     public Duration(int ms)
     {
-        Value = ms;
+        _value = ms;
     }
 
-    public int Value { get; }
+    public int Value => _value;
 }
-
-public class DurationConverter : ValueConverter<Duration, int>
+class DurationConverter : ValueConverter<Duration, int>
 {
-    public DurationConverter() 
-        : base(
-            d => d.Value, 
-            v => new Duration(v))
-    {
-    }
-}
-
-public class Cat
-{
-    public int Id { get; set; }
-    public string? Name { get; set; }
-    public DateTimeOffset DateOfBirth { get; set; }
-    public string? Title { get; set; }
-
-    public int? OwnerId { get; set; }
-    public Owner? Owner { get; set; }
-}
-
-
-public class Bar
-{
-    public string? Foo { get; set; }
+    public DurationConverter()
+        : base(d => d.Value, x => new Duration(x), null)
+    { }
 }
 
 public class Order
@@ -246,7 +222,6 @@ public class Order
     public OrderStatus? Status { get; set; }
     public DetailedOrder DetailedOrder { get; set; }
 }
-
 public class DetailedOrder
 {
     public int Id { get; set; }
@@ -255,11 +230,14 @@ public class DetailedOrder
     public string ShippingAddress { get; set; }
     public byte[] Version { get; set; }
 }
-
 public enum OrderStatus
 {
     Pending,
-    Paid,
-    Shipping,
-    Delivered
+    Shipped
+}
+
+class Foo
+{
+    public int Bar { get; set; }
+    public string Baz { get; set; }
 }
