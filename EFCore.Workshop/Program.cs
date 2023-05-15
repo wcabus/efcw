@@ -1,7 +1,6 @@
-﻿using System.Net;
-using System.Net.Sockets;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace EFCore.Workshop;
 
@@ -15,7 +14,17 @@ public class Program
 
         //await QueryOnShadowProperties(db);
         //await QueryOnSharedType(db);
-        await QuerySharedFilters(db);
+        //await DefaultQueryFilters(db);
+        //await db.Set<Bar>().FromSqlRaw("SELECT '1' AS Foo").LoadAsync();
+
+        var order = await db.Set<Order>()
+            .TagWithCallSite()
+            .Where(x => x.Id == 10)
+            .FirstOrDefaultAsync();
+        if (order is not null)
+        {
+            await db.Entry(order).Reference(x => x.DetailedOrder).LoadAsync();
+        }
     }
 
     private static async Task<List<Dog>> QueryOnShadowProperties(MyContext db)
@@ -32,7 +41,7 @@ public class Program
             .ToListAsync();
     }
 
-    private static async Task QuerySharedFilters(MyContext db)
+    private static async Task DefaultQueryFilters(MyContext db)
     {
         await db.Dogs
             //.IgnoreQueryFilters()
@@ -70,6 +79,27 @@ public class MyContext : DbContext
             b.Property<string>("Name");
             b.Property<int>("Age");
             b.Property<double>("Score");
+        });
+
+        modelBuilder.Entity<Bar>()
+            .HasNoKey()
+            ;//.ToView("MyView");
+
+        modelBuilder.Entity<DetailedOrder>(b =>
+        {
+            b.ToTable("Orders");
+            b.Property(x => x.Status).HasColumnName("Status");
+        });
+
+        modelBuilder.Entity<Order>(b =>
+        {
+            b.ToTable("Orders");
+            b.Property(x => x.Status).HasColumnName("Status");
+            
+            // splitting into base and more detailed entities on the same table
+            b.HasOne(x => x.DetailedOrder).WithOne()
+                .HasForeignKey<DetailedOrder>(o => o.Id);
+            b.Navigation(x => x.DetailedOrder).IsRequired();
         });
     }
 
@@ -136,6 +166,9 @@ public class DogConfiguration : IEntityTypeConfiguration<Dog>
         builder.Property<DateTimeOffset>("LastUpdated");
 
         builder.HasQueryFilter(x => x.Active);
+
+        builder.Property(x => x.Duration)
+            .HasConversion(new DurationConverter());
     }
 }
 
@@ -167,6 +200,27 @@ public class Dog
     public int? OwnerId { get; set; }
     public Owner? Owner { get; set; }
     public bool Active { get; set; }
+    public Duration Duration { get; set; }
+}
+
+public class Duration
+{
+    public Duration(int ms)
+    {
+        Value = ms;
+    }
+
+    public int Value { get; }
+}
+
+public class DurationConverter : ValueConverter<Duration, int>
+{
+    public DurationConverter() 
+        : base(
+            d => d.Value, 
+            v => new Duration(v))
+    {
+    }
 }
 
 public class Cat
@@ -178,4 +232,34 @@ public class Cat
 
     public int? OwnerId { get; set; }
     public Owner? Owner { get; set; }
+}
+
+
+public class Bar
+{
+    public string? Foo { get; set; }
+}
+
+public class Order
+{
+    public int Id { get; set; }
+    public OrderStatus? Status { get; set; }
+    public DetailedOrder DetailedOrder { get; set; }
+}
+
+public class DetailedOrder
+{
+    public int Id { get; set; }
+    public OrderStatus? Status { get; set; }
+    public string BillingAddress { get; set; }
+    public string ShippingAddress { get; set; }
+    public byte[] Version { get; set; }
+}
+
+public enum OrderStatus
+{
+    Pending,
+    Paid,
+    Shipping,
+    Delivered
 }
