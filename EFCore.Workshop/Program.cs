@@ -1,11 +1,12 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Query.Internal;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Test;
 
 // https://github.com/FransBouma/RawDataAccessBencher
-
+https://github.com/cincuranet/efcw/blob/main/Program.cs
 class Program
 {
     static void Main()
@@ -48,13 +49,90 @@ class Program
         //    .First();
         //db.Entry(foo).Reference(x => x.DetailedOrder).Load();
 
-        db.Set<Boat>().Add(new Boat() { Price = 120_000m, Length = 10f });
-        db.Set<Plane>().Add(new Plane() { Price = 2_400_000m, MTOW = 10000 });
+        //db.Set<Boat>().Add(new Boat() { Price = 120_000m, Length = 10f });
+        //db.Set<Plane>().Add(new Plane() { Price = 2_400_000m, MTOW = 10000 });
+        //db.SaveChanges();
+
+        //db.Set<Boat>().Load();
+        //db.Set<Plane>().Load();
+        //db.Set<Vehicle>().Load();
+
+        db.Owners.Add(new Owner()
+        {
+            LastName = "Test",
+            Dogs = new List<Dog>
+            {
+                new Dog() { Active = true, Name = "Fido", DateOfBirth = DateTimeOffset.Now },
+                new Dog() { Active = true, Name = "Rex", DateOfBirth = DateTimeOffset.Now }
+            }
+        });
+        db.Owners.Add(new Owner()
+        {
+            LastName = "Test 2",
+            Dogs = new List<Dog>
+            {
+                new Dog() { Active = true, Name = "Fido 2", DateOfBirth = DateTimeOffset.Now },
+                new Dog() { Active = true, Name = "Rex 2", DateOfBirth = DateTimeOffset.Now }
+            }
+        });
         db.SaveChanges();
 
-        db.Set<Boat>().Load();
-        db.Set<Plane>().Load();
-        db.Set<Vehicle>().Load();
+        //// Eager loading
+        //using var db2 = new MyContext();
+        //WriteDogs(db2.Dogs.Where(x => x.Id >= 1).Include(x => x.Owner));
+
+        //// Explicit Lazy loading
+        //using var db3 = new MyContext();
+        //WriteDogsLazyExplicit(db3, db3.Dogs.Where(x => x.Id >= 1));
+
+        //// Implicit Lazy loading
+        //using var db4 = new MyContext();
+        //WriteDogs(db4.Dogs.Where(x => x.Id >= 1));
+
+        // Eager loading
+        using var db2 = new MyContext();
+        WriteDogs(db2.Dogs.Where(x => x.Id >= 1).Include(x => x.Owner).AsSplitQuery().AsNoTrackingWithIdentityResolution());
+    }
+
+    private static void WriteDogs(IQueryable<Dog> query)
+    {
+        Console.Clear();
+
+        var dogs = query.ToList();
+        foreach (var dog in dogs)
+        {
+            Console.WriteLine($"{dog.Name} - {dog.Owner.LastName}");
+        }
+
+        Console.WriteLine("Press ENTER to continue...");
+        Console.ReadLine();
+    }
+
+    private static void WriteDogsLazyExplicit(MyContext db, IQueryable<Dog> query)
+    {
+        Console.Clear();
+
+        var dogs = query.ToList();
+        foreach (var dog in dogs)
+        {
+            db.Entry(dog).Reference(x => x.Owner).Load();
+            Console.WriteLine($"{dog.Name} - {dog.Owner.LastName}");
+        }
+
+        Console.WriteLine("Press ENTER to continue...");
+        Console.ReadLine();
+    }
+}
+
+// compiled queries
+static class Queries
+{
+    private static readonly Func<MyContext, List<Dog>> GetDogQuery =
+        EF.CompileQuery<MyContext, List<Dog>>(db => db.Dogs.ToList());
+
+    public static List<Dog> GetDogs(MyContext db)
+    {
+        return GetDogQuery(db);
     }
 }
 
@@ -75,6 +153,7 @@ class MyContext : DbContext
             optionsBuilder.UseSqlServer(@"Server=.;Database=workshop;Trusted_Connection=true;ConnectRetryCount=0;TrustServerCertificate=true");
             optionsBuilder.LogTo(Console.WriteLine);
             optionsBuilder.EnableSensitiveDataLogging();
+            // optionsBuilder.UseLazyLoadingProxies();
         }
     }
 
@@ -161,7 +240,7 @@ class MyContext : DbContext
 
 #region Foo
 
-class OwnerConfiguration : IEntityTypeConfiguration<Owner>
+public class OwnerConfiguration : IEntityTypeConfiguration<Owner>
 {
     public void Configure(EntityTypeBuilder<Owner> builder)
     {
@@ -182,27 +261,27 @@ class OwnerConfiguration : IEntityTypeConfiguration<Owner>
         builder.OwnsOne(x => x.InvoicingAddress);
     }
 }
-class Owner
+public class Owner
 {
     public int Id { get; set; }
-    public string FirstName { get; set; }
-    public string LastName { get; set; }
-    public ICollection<Dog> Dogs { get; set; }
-    public Address ShippingAddress { get; set; }
-    public Address InvoicingAddress { get; set; }
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
+    public virtual ICollection<Dog>? Dogs { get; set; }
+    public Address? ShippingAddress { get; set; }
+    public Address? InvoicingAddress { get; set; }
 }
 //class Name
 //{
 //    public string FirstName { get; set; }
 //    public string LastName { get; set; }
 //}
-class Address
+public class Address
 {
-    public string Street { get; set; }
-    public string City { get; set; }
+    public string? Street { get; set; }
+    public string? City { get; set; }
 }
 
-class DogConfiguration : IEntityTypeConfiguration<Dog>
+public class DogConfiguration : IEntityTypeConfiguration<Dog>
 {
     public void Configure(EntityTypeBuilder<Dog> builder)
     {
@@ -215,12 +294,12 @@ class DogConfiguration : IEntityTypeConfiguration<Dog>
             .HasConversion(new DurationConverter()/*, comparer*/);
     }
 }
-class Dog
+public class Dog
 {
     private DateTimeOffset dob;
 
     public int Id { get; set; }
-    public string Name { get; set; }
+    public string? Name { get; set; }
     public DateTimeOffset DateOfBirth
     {
         get => dob;
@@ -232,13 +311,13 @@ class Dog
             static void Validate(DateTimeOffset dto) { }
         }
     }
-    public Owner Owner { get; set; }
+    public virtual Owner Owner { get; set; }
     public int OwnerId { get; set; }
     public bool Active { get; set; }
-    public Duration Duration { get; set; }
+    public Duration? Duration { get; set; }
 }
 
-class Duration
+public class Duration
 {
     private int _value;
 
@@ -249,7 +328,7 @@ class Duration
 
     public int Value => _value;
 }
-class DurationConverter : ValueConverter<Duration, int>
+public class DurationConverter : ValueConverter<Duration, int>
 {
     public DurationConverter()
         : base(d => d.Value, x => new Duration(x), null)
@@ -260,7 +339,7 @@ public class Order
 {
     public int Id { get; set; }
     public OrderStatus? Status { get; set; }
-    public DetailedOrder DetailedOrder { get; set; }
+    public virtual DetailedOrder DetailedOrder { get; set; }
 }
 public class DetailedOrder
 {
@@ -276,7 +355,7 @@ public enum OrderStatus
     Shipped
 }
 
-class Foo
+public class Foo
 {
     public int Bar { get; set; }
     public string Baz { get; set; }
@@ -284,18 +363,18 @@ class Foo
 
 #endregion
 
-abstract class Vehicle
+public abstract class Vehicle
 {
     public int Id { get; set; }
     public decimal Price { get; set; }
 }
 
-class Boat : Vehicle
+public class Boat : Vehicle
 {
     public float Length { get; set; }
 }
 
-class Plane : Vehicle
+public class Plane : Vehicle
 {
     /// <summary>
     /// Maximum Take-Off Weight
