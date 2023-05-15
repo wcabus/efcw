@@ -1,11 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using Microsoft.Extensions.Options;
-using System.ComponentModel.DataAnnotations.Schema;
-using System.Linq.Expressions;
-using System.Net;
-using System.Net.Sockets;
 
 namespace Test;
 
@@ -52,6 +47,14 @@ class Program
         //    .Where(x => x.Id == 10)
         //    .First();
         //db.Entry(foo).Reference(x => x.DetailedOrder).Load();
+
+        db.Set<Boat>().Add(new Boat() { Price = 120_000m, Length = 10f });
+        db.Set<Plane>().Add(new Plane() { Price = 2_400_000m, MTOW = 10000 });
+        db.SaveChanges();
+
+        db.Set<Boat>().Load();
+        db.Set<Plane>().Load();
+        db.Set<Vehicle>().Load();
     }
 }
 
@@ -69,7 +72,7 @@ class MyContext : DbContext
 
         if (!optionsBuilder.IsConfigured)
         {
-            optionsBuilder.UseSqlServer(@"Server=.;Database=workshop;User Id=sa;Password=test;ConnectRetryCount=0;TrustServerCertificate=true");
+            optionsBuilder.UseSqlServer(@"Server=.;Database=workshop;Trusted_Connection=true;ConnectRetryCount=0;TrustServerCertificate=true");
             optionsBuilder.LogTo(Console.WriteLine);
             optionsBuilder.EnableSensitiveDataLogging();
         }
@@ -79,6 +82,41 @@ class MyContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        OldConfig(modelBuilder);
+
+        TypeInheritanceConfig(modelBuilder);
+    }
+
+    private static void TypeInheritanceConfig(ModelBuilder modelBuilder)
+    {
+        // table/entity inheritance
+        //modelBuilder.Entity<Vehicle>().UseTphMappingStrategy();
+        //modelBuilder.Entity<Boat>(b =>
+        //{
+        //    b.HasDiscriminator<string>("D").HasValue("bo");
+        //    b.Property("D").HasMaxLength(2).IsFixedLength();
+        //});
+        //modelBuilder.Entity<Plane>(b =>
+        //{
+        //    b.HasDiscriminator<string>("D").HasValue("pl");
+        //    b.Property("D").HasMaxLength(2).IsFixedLength();
+        //});
+
+        //modelBuilder.Entity<Vehicle>().UseTptMappingStrategy();
+        //modelBuilder.Entity<Boat>(b =>
+        //{
+        //});
+        //modelBuilder.Entity<Plane>(b =>
+        //{
+        //});
+
+        modelBuilder.Entity<Vehicle>().UseTpcMappingStrategy();
+        modelBuilder.Entity<Boat>(b => { });
+        modelBuilder.Entity<Plane>(b => { });
+    }
+
+    private static void OldConfig(ModelBuilder modelBuilder)
+    {
         modelBuilder.ApplyConfiguration(new OwnerConfiguration());
         modelBuilder.ApplyConfiguration(new DogConfiguration());
         modelBuilder.HasSequence("cdssdcds").IsCyclic()
@@ -120,6 +158,8 @@ class MyContext : DbContext
     public DbSet<Owner> Owners => Set<Owner>();
     public DbSet<Dog> Dogs => Set<Dog>();
 }
+
+#region Foo
 
 class OwnerConfiguration : IEntityTypeConfiguration<Owner>
 {
@@ -240,4 +280,25 @@ class Foo
 {
     public int Bar { get; set; }
     public string Baz { get; set; }
+}
+
+#endregion
+
+abstract class Vehicle
+{
+    public int Id { get; set; }
+    public decimal Price { get; set; }
+}
+
+class Boat : Vehicle
+{
+    public float Length { get; set; }
+}
+
+class Plane : Vehicle
+{
+    /// <summary>
+    /// Maximum Take-Off Weight
+    /// </summary>
+    public int MTOW { get; set; }
 }
